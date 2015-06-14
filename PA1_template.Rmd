@@ -5,7 +5,7 @@ output:
     keep_md: true
 ---
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
 library(ggplot2, warn.conflicts = F)
 library(plyr, warn.conflicts = F)
 library(dplyr, warn.conflicts = F)
@@ -30,11 +30,14 @@ DATA <- read.csv(RAWFILE)
 ## What is mean total number of steps taken per day?
 First we build summary with the total number of steps for each recorded date, ignoring NA values; then plot using ggplot2 to build the required histogram
 ```{r}
-SUMD <- ddply(DATA, .(date), summarise, steps = mean(steps, na.rm = T))
-ggplot(data = SUMD, aes(x = steps)) + 
-  geom_histogram() +
+SUMD <- ddply(DATA, .(date), summarise, steps = sum(steps, na.rm = T))
+COORD <- coord_cartesian(xlim = c(0, 22500), ylim = c(0, 15))
+p0 <- ggplot(data = SUMD) + 
+  geom_histogram(aes(x = steps), fill = "blue", alpha = 0.2, binwidth = 500) +
   ggtitle("Steps per day") + 
-  xlab("steps")
+  xlab("steps") +
+  COORD
+grid.arrange(p0, ncol = 1)
 ```
 
 The mean and median are ```r mean(SUMD$steps, na.rm = T)``` and ```r median(SUMD$steps, na.rm = T)``` respectively
@@ -62,23 +65,44 @@ fillfn <- function(steps, date, interval) { ifelse(is.na(steps), omean, steps) }
 FDATA <- mdply(DATA, fillfn) %>% mutate(steps = V1)
 ```
  
-Given our choice for the imputation strategy the overall mean value  has not been alterd as is still ```r mean(FDATA$steps)```. The median also stays the same at value ```r median(FDATA$steps)``` . Graphically:
+Given our choice for the imputation strategy the overall mean value  has not been alterd as is still ```r mean(FDATA$steps)```. The median also stays the same at value ```r median(FDATA$steps)``` . Plotting histograms for the original and imputed data sets we get:
 
 ```{r}
-SUMD <- ddply(DATA, .(date), summarise, steps = sum(steps, na.rm = T))
 SUMF <- ddply(FDATA, .(date), summarise, steps = sum(steps, na.rm = T))
 SUMS <- merge(SUMD, SUMF, by = "date") %>% 
   mutate(steps.d = steps.y - steps.x)
-p0 <- ggplot(data = SUMS, aes(x = steps.x)) +
-  geom_histogram(aes(data = steps.x, fill = "blue", alpha = 0.2)) +
-  ggtitle("Average steps per day") + 
-  xlab("steps")
 p1 <- ggplot(data = SUMS, aes(x = steps.y)) +
-  geom_histogram(aes(data = steps.y, , fill = "red", alpha = 0.2)) +
+  geom_histogram(aes(x = steps.y), fill = "red", alpha = 0.2, binwidth = 500) +
   ggtitle("Average steps per day") + 
-  xlab("steps")
+  xlab("steps") +
+  COORD
 grid.arrange(p0, p1, ncol = 1)
 ```
 
-As we can see our imputation strategy has a significant effect witht the number of days with low or zero step count has decreased and the days with mean step count has increased in approximately the same proportion
+As we can see our imputation strategy has a significant effect witht the number of days with low or zero step count has decreased and the days with mean step count has increased in approximately the same proportion.
 
+Turns out there's a lot that goes into devising an effective imputing strategy for misisng data. If interested check out [Amelia II](http://gking.harvard.edu/amelia) and the referenced [paper](http://www.math.smith.edu/~nhorton/muchado.pdf) and [video](https://vimeo.com/18534025) from their project page.
+
+## Are there any differences between 
+We first create the factor variable 'is.weekday' as requred  
+
+```{r}
+WEDAYS = c('Saturday', 'Sunday')
+IS.WEDAY <- function(x) { ifelse(weekdays(as.Date(x)) %in% WEDAYS, "weekend", "weekday") }
+DATAW <- DATA %>% mutate(is.weekday = factor(IS.WEDAY(date)))
+SUMW <- ddply(DATAW, .(interval, is.weekday), summarise, steps = mean(steps, na.rm = T))
+```
+
+Plotting is then straightforward  
+
+```{r, warning = FALSE}
+ggplot(DATAW, aes(x = interval, y = steps)) +
+  geom_line(alpha = 0.4) +
+  geom_smooth(alha = 0.2) +
+  facet_wrap(~ is.weekday, ncol = 1) +
+  xlab("interval") +
+  ylab("Average steps per interval") +
+  ggtitle("Weekdays vs Weekend")
+```
+
+We can observe from the graph that the average weekday activity starts earlier and is much more variable throughout the day with a noticeable peak in the morning hours. Weekend behavior on the other hand is somewhat smoother with a less pronunced peak in the afternoon hours. It's somewhat odd to notice that late night activity seems to be lower during weekends, whereas a naive expectation would be the opposite to happen; could this be perhaps an artifact of sampling bias?, or simply people sitting at pubs?
