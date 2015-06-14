@@ -5,6 +5,13 @@ output:
     keep_md: true
 ---
 
+```{r, echo=FALSE}
+library(ggplot2, warn.conflicts = F)
+library(plyr, warn.conflicts = F)
+library(dplyr, warn.conflicts = F)
+library(functional, warn.conflicts = F)
+library(gridExtra)
+```
 
 ## Loading and preprocessing the data
 The input file is downloaded automatically only if an existing copy is unavailable, and assumed to be static and independent of the download date/time. This eliminates the need to keep timestamped versions of the data for every run. Only csv files are kept with all other intermediate (i.e. zip files) discarded immediately.
@@ -21,77 +28,57 @@ DATA <- read.csv(RAWFILE)
 ```
 
 ## What is mean total number of steps taken per day?
-First we build summary with the total number of steps for each recorded date, ignoring NAs  
+First we build summary with the total number of steps for each recorded date, ignoring NA values; then plot using ggplot2 to build the required histogram
 ```{r}
-library(ggplot2)
-library(functional)
-library(dplyr)
-SUM <- tapply(DATA$steps, DATA$date, Curry(sum, na.rm = T))
-```
-
-Then plot using ggplot2 to build the required histogram  
-```{r}
-qplot(SUM, geom = "histogram") + 
+SUMD <- ddply(DATA, .(date), summarise, steps = mean(steps, na.rm = T))
+ggplot(data = SUMD, aes(x = steps)) + 
+  geom_histogram() +
   ggtitle("Steps per day") + 
   xlab("steps")
 ```
 
-The Mean is  
-```{r} 
-mean(SUM, na.rm = T)
-``` 
-
-and Median is   
-```{r} 
-median(SUM, na.rm = T)
-```
+The mean and median are ```r mean(SUMD$steps, na.rm = T)``` and ```r median(SUMD$steps, na.rm = T)``` respectively
 
 ## What is the average daily activity pattern?
-For the average daily pattern we proceed similarly as before indexing by interval instead of date  
+For the average daily pattern we proceed similarly as before indexing by interval instead of date. We then plot in the same way we proceeded before 
 ```{r}
-library(functional)
-SUM <- tapply(DATA$steps, DATA$interval, Curry(mean, na.rm = T))
-SUM <- data.frame(interval = as.numeric(names(SUM)), steps = SUM, row.names = NULL)
-```
-
-Plotting is also similar to the last case  
-```{r}
-ggplot(data = SUM, aes(SUM$interval, SUM$steps)) + 
+SUMI <- ddply(DATA, .(interval), summarise, steps = mean(steps, na.rm = T))
+ggplot(data = SUMI, aes(interval, steps)) + 
   geom_line() +
   ggtitle("Average steps per interval") +
   xlab("interval") +
-  ylab("steps")
+  ylab("step average")
 ```
 
-The interval with the highest average is   
-```{r}
-SUM[which.max(SUM$steps),]$interval
-```
+The interval with the highest average is ```r SUMI[which.max(SUMI$steps),]$interval```
 
 ## Imputing missing values
 
+We can easily find the number of missing values to be ```r sum(is.na((DATA$steps)))``` out of ```r nrow(DATA)```. The original mean was calculated to be ```r mean(DATA$steps, na.rm = T)``` with median ```r median(DATA$steps, na.rm = T)```, we'll use this value and implement a simple constant imputation strategy
+
 ```{r}
-SUM <- tapply(DATA$steps, DATA$date, Curry(sum, na.rm = T))
+omean <- mean(DATA$steps[! is.na(DATA$steps)])
+fillfn <- function(steps, date, interval) { ifelse(is.na(steps), omean, steps) }
+FDATA <- mdply(DATA, fillfn) %>% mutate(steps = V1)
+```
+ 
+Given our choice for the imputation strategy the overall mean value  has not been alterd as is still ```r mean(FDATA$steps)```. The median also stays the same at value ```r median(FDATA$steps)``` . Graphically:
+
+```{r}
+SUMD <- ddply(DATA, .(date), summarise, steps = sum(steps, na.rm = T))
+SUMF <- ddply(FDATA, .(date), summarise, steps = sum(steps, na.rm = T))
+SUMS <- merge(SUMD, SUMF, by = "date") %>% 
+  mutate(steps.d = steps.y - steps.x)
+p0 <- ggplot(data = SUMS, aes(x = steps.x)) +
+  geom_histogram(aes(data = steps.x, fill = "blue", alpha = 0.2)) +
+  ggtitle("Average steps per day") + 
+  xlab("steps")
+p1 <- ggplot(data = SUMS, aes(x = steps.y)) +
+  geom_histogram(aes(data = steps.y, , fill = "red", alpha = 0.2)) +
+  ggtitle("Average steps per day") + 
+  xlab("steps")
+grid.arrange(p0, p1, ncol = 1)
 ```
 
-We can easily find the number of missing values to be ```r sum(is.na((DATA$steps)))```. The original mean was calculated to be ```r mean(DATA$steps[! is.na(DATA$steps)])``` with the median equal to ```r median(SUM, na.rm = T)```
-
-We know that filling in missing values should introduce bias into the calculations. To illustrate this we use a simple mean fill strategy  
-
-```{r}
-old.mean <- mean(DATA$steps[! is.na(DATA$steps)])
-DATA$steps[is.na(DATA$steps)] <- old.mean
-```
-
-The new number of missing values is ```r sum(is.na(DATA$steps))```. The mean is now ```r mean(SUM, na.rm = T)``` with median 
-
-
-## Are there differences in activity patterns between weekdays and weekends?
-```{r}
-library(lubridate)
-library(dplyr)
-
-
-
-
+As we can see our imputation strategy has a significant effect witht the number of days with low or zero step count has decreased and the days with mean step count has increased in approximately the same proportion
 
